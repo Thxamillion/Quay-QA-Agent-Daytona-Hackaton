@@ -113,7 +113,35 @@ export abstract class WorkspaceService {
   }
 
   /**
-   * Install browser-use in workspace
+   * Start desktop environment for Computer Use
+   */
+  static async startDesktop(workspaceId: string) {
+    const workspace = await daytona.get(workspaceId);
+
+    console.log('Starting desktop environment...');
+
+    // Start VNC processes (Xvfb, x11vnc, novnc)
+    await workspace.computerUse.start();
+    console.log('✓ VNC started');
+
+    // Wait for VNC to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Launch Chromium in desktop environment
+    console.log('Launching Chromium...');
+    await workspace.process.executeCommand(
+      'DISPLAY=:1 chromium --no-sandbox --disable-dev-shm-usage --start-maximized http://localhost:3000 &'
+    );
+
+    // Wait for browser to open
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log('✓ Browser launched');
+
+    return { started: true };
+  }
+
+  /**
+   * Install browser-use in workspace (DEPRECATED - using Computer Use instead)
    */
   static async installBrowserUse(workspaceId: string) {
     const workspace = await daytona.get(workspaceId);

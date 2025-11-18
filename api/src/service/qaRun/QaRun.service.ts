@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm';
 import { QaRunPython } from './QaRun.python';
 import { inngestClient } from '@/lib/inngest-client';
 import { FailureAnalysisService } from '../ai/FailureAnalysis.service';
+import { ComputerUseAgent } from '../computerUse/ComputerUseAgent.service';
 
 export abstract class QaRunService {
   /**
@@ -95,60 +96,46 @@ export abstract class QaRunService {
   }
 
   /**
-   * Execute a test flow using browser-use
+   * Execute a test flow using Computer Use + Claude Vision
    */
   static async executeTestFlow(
     qaRunId: Id<'qaRun'>,
     testFlow: TestFlowEntity,
     workspaceId: string
   ): Promise<any> {
-    const workspace = await daytona.get(workspaceId);
+    console.log('Executing test flow with Computer Use:', testFlow.name);
 
-    // 1. Generate Python script
-    const pythonScript = QaRunPython.generateTestScript(testFlow);
-
-    // 2. Write to workspace
-    const scriptPath = `/tmp/test_${testFlow.id}.py`;
-    await workspace.fs.uploadFile(Buffer.from(pythonScript), scriptPath);
-
-    // 3. Execute Python script with Anthropic API key
-    // Use export to ensure env var is properly set in the shell
-    const response = await workspace.process.executeCommand(
-      `export ANTHROPIC_API_KEY="${env.ANTHROPIC_API_KEY}" && cd /tmp && python3 test_${testFlow.id}.py 2>&1`
+    // Use Computer Use instead of browser-use
+    const result = await ComputerUseAgent.executeTask(
+      workspaceId,
+      testFlow.task,
+      15  // max steps
     );
 
-    // 4. Parse results from stdout
-    const output = response.result || response.artifacts?.stdout || '';
-    console.log('Raw Python output:', output.substring(0, 500));
+    // Convert to same format as before for database
+    const steps = result.steps.map((step, i) => ({
+      stepNumber: i + 1,
+      action: step.action.description || step.action.type,
+      status: step.action.type === 'failed' ? 'failed' : 'passed',
+      screenshot: step.screenshot,
+      error: step.action.type === 'failed' ? step.action.reason : null,
+      errorType: step.action.type === 'failed' ? 'task_failure' : null
+    }));
 
-    // Check if output contains Python error (traceback)
-    if (output.includes('Traceback') || output.includes('Error:')) {
-      throw new Error(`Python script failed:\n${output}`);
-    }
+    // Save test results to database
+    await this.saveTestResults(qaRunId, testFlow.id, {
+      success: result.success,
+      steps,
+      extracted_content: result.result || result.error
+    });
 
-    // Check if Python script exited with error
-    if (response.exitCode !== 0) {
-      throw new Error(`Python script failed with exit code ${response.exitCode}:\n${output}`);
-    }
-
-    // Try to parse JSON, handle errors gracefully
-    let results;
-    try {
-      results = JSON.parse(output);
-    } catch (parseError) {
-      throw new Error(`Failed to parse Python output as JSON. Output was:\n${output.substring(0, 1000)}`);
-    }
-
-    // 5. Save steps to database
-    await this.saveTestResults(qaRunId, testFlow.id, results);
-
-    // 6. Generate AI failure analysis if test failed
-    if (!results.success) {
-      const steps = await this.getSteps(qaRunId);
+    // Generate AI failure analysis if test failed
+    if (!result.success) {
+      const savedSteps = await this.getSteps(qaRunId);
       const analysis = await FailureAnalysisService.analyzeFailure(
         testFlow,
-        steps,
-        results.extracted_content
+        savedSteps,
+        result.error || 'Test failed'
       );
 
       await db.update(qaRunsTable)
@@ -161,19 +148,7 @@ export abstract class QaRunService {
         .where(eq(qaRunsTable.id, qaRunId));
     }
 
-    // 7. Save video recording
-    if (results.video_path) {
-      // TODO: Upload video to storage and get URL
-      const videoUrl = results.video_path; // Placeholder
-      await db.update(qaRunsTable)
-        .set({
-          videoRecordingUrl: videoUrl,
-          videoRecordingPath: results.video_path,
-        })
-        .where(eq(qaRunsTable.id, qaRunId));
-    }
-
-    return results;
+    return result;
   }
 
   /**

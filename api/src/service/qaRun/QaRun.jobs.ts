@@ -55,9 +55,9 @@ export const runQaTestsJob = inngestClient.createFunction(
         );
       });
 
-      // Step 3: Install browser-use
-      await step.run('install-browser-use', async () => {
-        return await WorkspaceService.installBrowserUse(workspace.id);
+      // Step 3: Start desktop environment for Computer Use
+      await step.run('start-desktop', async () => {
+        return await WorkspaceService.startDesktop(workspace.id);
       });
 
       // Step 4: Run each test flow
