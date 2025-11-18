@@ -47,7 +47,9 @@ export default function HomePage() {
           </Card>
         ) : (
           <div className="grid gap-4">
-            {qaRuns.slice(0, 10).map((run) => (
+            {qaRuns
+              .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+              .map((run) => (
               <Link key={run.id} href={`/qa-runs/${run.id}`}>
                 <Card className="hover:border-primary/50 hover:bg-card/80 transition-all cursor-pointer group">
                   <CardHeader>

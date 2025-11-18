@@ -96,46 +96,59 @@ export abstract class QaRunService {
   }
 
   /**
-   * Execute a test flow using Computer Use + Claude Vision
+   * Execute a test flow using browser-use
    */
   static async executeTestFlow(
     qaRunId: Id<'qaRun'>,
     testFlow: TestFlowEntity,
     workspaceId: string
   ): Promise<any> {
-    console.log('Executing test flow with Computer Use:', testFlow.name);
+    const workspace = await daytona.get(workspaceId);
 
-    // Use Computer Use instead of browser-use
-    const result = await ComputerUseAgent.executeTask(
-      workspaceId,
-      testFlow.task,
-      15  // max steps
+    // 1. Generate Python script
+    const pythonScript = QaRunPython.generateTestScript(testFlow);
+
+    // 2. Write to workspace
+    const scriptPath = `/tmp/test_${testFlow.id}.py`;
+    await workspace.fs.uploadFile(Buffer.from(pythonScript), scriptPath);
+
+    // 3. Execute Python script with Anthropic API key
+    const response = await workspace.process.executeCommand(
+      `export ANTHROPIC_API_KEY="${env.ANTHROPIC_API_KEY}" && cd /tmp && python3 test_${testFlow.id}.py 2>&1`
     );
 
-    // Convert to same format as before for database
-    const steps = result.steps.map((step, i) => ({
-      stepNumber: i + 1,
-      action: step.action.description || step.action.type,
-      status: step.action.type === 'failed' ? 'failed' : 'passed',
-      screenshot: step.screenshot,
-      error: step.action.type === 'failed' ? step.action.reason : null,
-      errorType: step.action.type === 'failed' ? 'task_failure' : null
-    }));
+    // 4. Parse results from stdout
+    const output = response.result || response.artifacts?.stdout || '';
+    console.log('Raw Python output:', output.substring(0, 500));
 
-    // Save test results to database
-    await this.saveTestResults(qaRunId, testFlow.id, {
-      success: result.success,
-      steps,
-      extracted_content: result.result || result.error
-    });
+    // Check if output contains Python error (traceback)
+    if (output.includes('Traceback') || output.includes('Error:')) {
+      throw new Error(`Python script failed:\n${output}`);
+    }
 
-    // Generate AI failure analysis if test failed
-    if (!result.success) {
-      const savedSteps = await this.getSteps(qaRunId);
+    // Check if Python script exited with error
+    if (response.exitCode !== 0) {
+      throw new Error(`Python script failed with exit code ${response.exitCode}:\n${output}`);
+    }
+
+    // Try to parse JSON
+    let results;
+    try {
+      results = JSON.parse(output);
+    } catch (parseError) {
+      throw new Error(`Failed to parse Python output as JSON. Output was:\n${output.substring(0, 1000)}`);
+    }
+
+    // 5. Save steps to database
+    await this.saveTestResults(qaRunId, testFlow.id, results);
+
+    // 6. Generate AI failure analysis if test failed
+    if (!results.success) {
+      const steps = await this.getSteps(qaRunId);
       const analysis = await FailureAnalysisService.analyzeFailure(
         testFlow,
-        savedSteps,
-        result.error || 'Test failed'
+        steps,
+        results.extracted_content
       );
 
       await db.update(qaRunsTable)
@@ -148,7 +161,7 @@ export abstract class QaRunService {
         .where(eq(qaRunsTable.id, qaRunId));
     }
 
-    return result;
+    return results;
   }
 
   /**

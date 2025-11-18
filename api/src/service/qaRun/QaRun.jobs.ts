@@ -55,9 +55,12 @@ export const runQaTestsJob = inngestClient.createFunction(
         );
       });
 
-      // Step 3: Start desktop environment for Computer Use
-      await step.run('start-desktop', async () => {
-        return await WorkspaceService.startDesktop(workspace.id);
+      // Step 3: Install browser-use (keep simple, skip browser install due to network restrictions)
+      await step.run('install-browser-use', async () => {
+        const workspace = await daytona.get(workspace.id);
+        // Just install browser-use package, skip browser download
+        await workspace.process.executeCommand('pip install browser-use');
+        return { installed: true };
       });
 
       // Step 4: Run each test flow

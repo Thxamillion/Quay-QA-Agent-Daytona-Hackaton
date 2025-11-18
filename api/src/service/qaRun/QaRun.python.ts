@@ -14,11 +14,10 @@ from pathlib import Path
 from browser_use import Agent, Browser, ChatAnthropic
 
 async def run_test():
-    # Create browser with video recording
+    # Create browser without video recording to avoid long filename errors
     # Use system Chromium to avoid needing to download Playwright browsers
     browser = Browser(
         headless=True,
-        record_video_dir="/tmp/recordings",
         window_size={"width": 1920, "height": 1080},
         browser_executable_path="/usr/bin/chromium",
         disable_security=True
@@ -38,14 +37,19 @@ async def run_test():
     try:
         history = await agent.run()
 
-        # Collect screenshots as base64
+        # Collect screenshots as base64 (with error handling for long filenames)
         screenshots = []
         screenshot_paths = history.screenshots()
         for i, screenshot_path in enumerate(screenshot_paths):
-            if screenshot_path and Path(screenshot_path).exists():
-                with open(screenshot_path, 'rb') as f:
-                    screenshots.append(base64.b64encode(f.read()).decode('utf-8'))
-            else:
+            try:
+                if screenshot_path and Path(screenshot_path).exists():
+                    with open(screenshot_path, 'rb') as f:
+                        screenshots.append(base64.b64encode(f.read()).decode('utf-8'))
+                else:
+                    screenshots.append(None)
+            except OSError as e:
+                # Handle file name too long or other OS errors
+                print(f"Warning: Could not read screenshot {i}: {e}")
                 screenshots.append(None)
 
         # Get action history and errors
@@ -65,12 +69,12 @@ async def run_test():
                 "screenshot": screenshots[i] if i < len(screenshots) else None
             })
 
-        # Collect overall results
+        # Collect overall results (no video since we disabled recording)
         results = {
             "success": history.is_successful(),
             "steps": steps,
             "extracted_content": history.final_result(),
-            "video_path": "/tmp/recordings/video.mp4"
+            "video_path": None
         }
     except Exception as e:
         results = {
