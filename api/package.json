@@ -1,0 +1,31 @@
+{
+  "name": "api",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:seed": "bun src/db/seed.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.7"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "@daytonaio/sdk": "^0.115.0",
+    "@elysiajs/cors": "^1.4.0",
+    "drizzle-orm": "^0.44.7",
+    "elysia": "^1.4.16",
+    "inngest": "^3.45.1",
+    "nanoid": "^5.1.6",
+    "postgres": "^3.4.7",
+    "zod": "^4.1.12"
+  }
+}
