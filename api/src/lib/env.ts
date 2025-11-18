@@ -15,6 +15,9 @@ const envSchema = z.object({
   // Anthropic
   ANTHROPIC_API_KEY: z.string().min(1),
 
+  // GitHub (for private repos)
+  GITHUB_TOKEN: z.string().optional(),
+
   // Server
   PORT: z.string().default('3001'),
 });

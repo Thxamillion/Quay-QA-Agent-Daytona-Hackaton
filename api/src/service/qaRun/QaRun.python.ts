@@ -9,22 +9,29 @@ export abstract class QaRunPython {
 import asyncio
 import json
 import base64
+import os
 from pathlib import Path
-from browser_use import Agent, Browser, ChatBrowserUse
+from browser_use import Agent, Browser, ChatAnthropic
 
 async def run_test():
     # Create browser with video recording
+    # Use system Chromium to avoid needing to download Playwright browsers
     browser = Browser(
         headless=True,
         record_video_dir="/tmp/recordings",
-        window_size={"width": 1920, "height": 1080}
+        window_size={"width": 1920, "height": 1080},
+        browser_executable_path="/usr/bin/chromium",
+        disable_security=True
     )
+
+    # Create LLM using browser-use's wrapped ChatAnthropic
+    llm = ChatAnthropic(model='claude-sonnet-4-20250514', temperature=0.0)
 
     # Create agent with test task
     agent = Agent(
         task="""${testFlow.task.replace(/"/g, '\\"')}""",
         browser=browser,
-        llm=ChatBrowserUse()
+        llm=llm
     )
 
     # Run the test
@@ -80,7 +87,7 @@ async def run_test():
             "video_path": None
         }
 
-    await browser.close()
+    await browser.stop()
     return results
 
 def classify_error(error):

@@ -109,15 +109,35 @@ export abstract class QaRunService {
 
     // 2. Write to workspace
     const scriptPath = `/tmp/test_${testFlow.id}.py`;
-    await workspace.writeFile(scriptPath, pythonScript);
+    await workspace.fs.uploadFile(Buffer.from(pythonScript), scriptPath);
 
     // 3. Execute Python script with Anthropic API key
-    const output = await workspace.process.executeCommand(
-      `cd /tmp && ANTHROPIC_API_KEY=${env.ANTHROPIC_API_KEY} python3 test_${testFlow.id}.py`
+    // Use export to ensure env var is properly set in the shell
+    const response = await workspace.process.executeCommand(
+      `export ANTHROPIC_API_KEY="${env.ANTHROPIC_API_KEY}" && cd /tmp && python3 test_${testFlow.id}.py 2>&1`
     );
 
-    // 4. Parse results
-    const results = JSON.parse(output);
+    // 4. Parse results from stdout
+    const output = response.result || response.artifacts?.stdout || '';
+    console.log('Raw Python output:', output.substring(0, 500));
+
+    // Check if output contains Python error (traceback)
+    if (output.includes('Traceback') || output.includes('Error:')) {
+      throw new Error(`Python script failed:\n${output}`);
+    }
+
+    // Check if Python script exited with error
+    if (response.exitCode !== 0) {
+      throw new Error(`Python script failed with exit code ${response.exitCode}:\n${output}`);
+    }
+
+    // Try to parse JSON, handle errors gracefully
+    let results;
+    try {
+      results = JSON.parse(output);
+    } catch (parseError) {
+      throw new Error(`Failed to parse Python output as JSON. Output was:\n${output.substring(0, 1000)}`);
+    }
 
     // 5. Save steps to database
     await this.saveTestResults(qaRunId, testFlow.id, results);
